@@ -456,6 +456,12 @@ function parseTreeLoose(data) {
   return entries;
 }
 
+/** An issue as a ready reply body, cached until the issue changes (the read workload reads one). */
+function issueBuffer(store, repo, issue) {
+  if (issue.jsonBody === undefined) issue.jsonBody = Buffer.from(JSON.stringify(issueJson(store, repo, issue)));
+  return issue.jsonBody;
+}
+
 /** /repos/{o}/{r}/issues[...] */
 function routeIssues(store, ctx, repo, rest) {
   const { method, query, body } = ctx;
@@ -477,7 +483,7 @@ function routeIssues(store, ctx, repo, rest) {
   }
   const number = Number(rest[0]);
   if (rest.length === 1) {
-    if (method === 'GET') return { status: 200, body: issueJson(store, repo, store.findIssue(repo, number)) };
+    if (method === 'GET') return { status: 200, body: issueBuffer(store, repo, store.findIssue(repo, number)) };
     if (method === 'PATCH') return { status: 200, body: issueJson(store, repo, store.updateIssue(repo, number, body ?? {})) };
     throw new HttpError(404, 'Not Found');
   }

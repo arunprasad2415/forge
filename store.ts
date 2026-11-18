@@ -74,6 +74,11 @@ class Repository {
     this.comments = [];
     this.commentSeq = 0;
     this.clock = 0;
+    /** Packs already built for one commit at one depth, keyed "<tip>:<depth>": a clone is repeatable. */
+    this.packCache = new Map();
+    /** Bumped on every ref change, so a cached ls-refs answer is dropped when the refs move. */
+    this.refsVersion = 0;
+    this.refsCache = new Map();
   }
 
   /** The next tick of this repository's deterministic clock. */
@@ -103,10 +108,12 @@ class Repository {
 
   setRef(name, oid) {
     this.refs.set(name, oid);
+    this.refsVersion += 1;
   }
 
   deleteRef(name) {
     this.refs.delete(name);
+    this.refsVersion += 1;
   }
 
   headRef() {
@@ -427,6 +434,7 @@ export class Store {
       issue.labels = names.map((name) => ({ ...repo.labels.get(name) }));
     }
     issue.updated_at = isoAt(repo.tick());
+    issue.jsonBody = undefined;
     return issue;
   }
 
@@ -454,6 +462,7 @@ export class Store {
     const comment = { id: repo.commentSeq, issue: issue.number, body, user: this.login, created_at: isoAt(tick), updated_at: isoAt(tick) };
     repo.comments.push(comment);
     issue.comments += 1;
+    issue.jsonBody = undefined;
     return comment;
   }
 

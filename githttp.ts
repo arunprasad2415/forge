@@ -225,6 +225,14 @@ export function uploadPackV2(store, repo, body) {
     const wantSymrefs = args.includes('symrefs');
     const wantPeel = args.includes('peel');
     const wantUnborn = args.includes('unborn');
+    // A clone asks the same ls-refs of an unchanged repository every time: keep that answer.
+    const cacheKey = `${repo.refsVersion}:${wantSymrefs ? 1 : 0}${wantPeel ? 1 : 0}${wantUnborn ? 1 : 0}:${prefixes.join(',')}`;
+    if (prefixes.length === 0) {
+      const cached = repo.refsCache.get(cacheKey);
+      if (cached !== undefined) {
+        return { status: 200, contentType: 'application/x-git-upload-pack-result', body: cached };
+      }
+    }
     const parts = [];
     const matches = (refName) => prefixes.length === 0 || prefixes.some((prefix) => refName.startsWith(prefix));
     const headRef = `refs/heads/${repo.defaultBranch}`;
@@ -239,7 +247,9 @@ export function uploadPackV2(store, repo, body) {
       parts.push(`${ref.oid} ${ref.name}${peel}\n`);
     }
     parts.push('flush');
-    return { status: 200, contentType: 'application/x-git-upload-pack-result', body: encodePktLines(parts) };
+    const body = encodePktLines(parts);
+    if (prefixes.length === 0) repo.refsCache.set(cacheKey, body);
+    return { status: 200, contentType: 'application/x-git-upload-pack-result', body };
   }
   if (name === 'fetch') {
     const args = commandArgs(packets);
@@ -248,9 +258,16 @@ export function uploadPackV2(store, repo, body) {
     const shallowSet = new Set(args.filter((line) => line.startsWith('shallow ')).map((line) => line.slice(8).trim()));
     const deepen = args.find((line) => line.startsWith('deepen '));
     const depth = deepen ? Number(deepen.slice(7).trim()) : null;
-    const plan = planFetch(store, repo, { wants, haves, shallowSet, depth: Number.isFinite(depth) ? depth : null });
+    const usableDepth = Number.isFinite(depth) ? depth : null;
+    // A shallow clone of one commit asks for the same bytes every time: build that pack once.
+    const cacheKey = wants.length === 1 && haves.length === 0 && shallowSet.size === 0 && usableDepth !== null ? `${wants[0]}:${usableDepth}` : null;
+    const cached = cacheKey === null ? undefined : repo.packCache.get(cacheKey);
+    if (cached !== undefined) {
+      return { status: 200, contentType: 'application/x-git-upload-pack-result', body: cached };
+    }
+    const plan = planFetch(store, repo, { wants, haves, shallowSet, depth: usableDepth });
     const parts = [];
-    if (depth != null || plan.boundaries.length > 0 || plan.unshallow.length > 0) {
+    if (usableDepth != null || plan.boundaries.length > 0 || plan.unshallow.length > 0) {
       parts.push('shallow-info\n');
       for (const oid of plan.unshallow) parts.push(`unshallow ${oid}\n`);
       for (const oid of plan.boundaries) parts.push(`shallow ${oid}\n`);
@@ -259,7 +276,9 @@ export function uploadPackV2(store, repo, body) {
     parts.push('packfile\n');
     const header = encodePktLines(parts);
     const pack = writePack(plan.objects);
-    return { status: 200, contentType: 'application/x-git-upload-pack-result', body: Buffer.concat([header, sidebandPack(pack)]) };
+    const body = Buffer.concat([header, sidebandPack(pack)]);
+    if (cacheKey !== null) repo.packCache.set(cacheKey, body);
+    return { status: 200, contentType: 'application/x-git-upload-pack-result', body };
   }
   return { status: 400, contentType: 'application/json', body: Buffer.from(JSON.stringify({ message: `unsupported command ${name}` })) };
 }
