@@ -68,17 +68,22 @@ function originOf(req) {
 }
 
 /** Split a URL path into decoded segments. */
-function segmentsOf(url) {
-  return url.pathname
-    .split('/')
-    .filter((segment) => segment !== '')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    });
+function segmentsOf(path) {
+  const parts = path.split('/');
+  const segments = [];
+  for (const part of parts) {
+    if (part === '') continue;
+    if (part.indexOf('%') < 0) {
+      segments.push(part);
+      continue;
+    }
+    try {
+      segments.push(decodeURIComponent(part));
+    } catch {
+      segments.push(part);
+    }
+  }
+  return segments;
 }
 
 /** Build the server: one Store behind every surface. */
@@ -107,9 +112,12 @@ export function createApp() {
   const handler = async (req, res) => {
     requestCounter += 1;
     const requestId = `forge-${requestCounter}`;
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const segments = segmentsOf(url);
-    const query = Object.fromEntries(url.searchParams.entries());
+    const rawUrl = req.url ?? '/';
+    const queryAt = rawUrl.indexOf('?');
+    const pathPart = queryAt < 0 ? rawUrl : rawUrl.slice(0, queryAt);
+    const segments = segmentsOf(pathPart);
+    // A request with no query string is the common one: skip building a URL object for it.
+    const query = queryAt < 0 ? {} : Object.fromEntries(new URLSearchParams(rawUrl.slice(queryAt + 1)).entries());
     const method = (req.method ?? 'GET').toUpperCase();
 
     // The boot probe takes no token and answers no JSON error body.
