@@ -434,3 +434,12 @@ export function createApp() {
 }
 
 export { Store };
+
+// Wire notes, kept beside the transport they describe:
+//   one request, one write    every reply is serialized into a single buffer before socket.write,
+//                             so a reply never interleaves with the next one on a pipelined socket.
+//   reads are cached           a GET or HEAD answer is reused while no mutating request has been
+//                             served since; the key includes the token and the git protocol header,
+//                             because both change the bytes the same URL answers with.
+//   nothing is assumed         an unparsable request is answered 400 and the socket closed; a short
+//                             buffer is held until the rest arrives, never guessed at.
