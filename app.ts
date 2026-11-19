@@ -348,7 +348,17 @@ function parseRequest(buf) {
 export function createApp() {
   const store = new Store();
   const route = makeRouter(store);
-  /** Serialized replies for GET/HEAD, dropped whenever a request may have changed the store. */
+  /**
+   * Serialized replies for GET/HEAD, dropped whenever a request may have changed the store.
+   *
+   * Invalidation rule: the map is emptied on the way out of any request whose method is not
+   * GET or HEAD, because that is the only kind of request that can mutate the store, and a
+   * cache entry that outlived one write would answer with the store's old shape. A hit never
+   * runs the router, so a read-only stream keeps its entries for as long as it stays read-only.
+   * The map is also replaced whole once MAX_CACHED_REPLIES entries are held, so a long read
+   * stream over many URLs cannot grow it without bound; that drop trades a warm start for a
+   * fixed ceiling, and every later miss refills it.
+   */
   let cache = new Map();
   let cached = 0;
 
